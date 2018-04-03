@@ -2,6 +2,7 @@ package com.rfksystems.intersocket.frames;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.rfksystems.intersocket.MessageType;
 
 public class S2CHandshakeFrame {
@@ -12,12 +13,12 @@ public class S2CHandshakeFrame {
     private final String platformVersion;
 
     @JsonProperty("ident")
-    private final String ident;
+    private final JsonNode ident;
 
     private S2CHandshakeFrame(
             final short protocolVersion,
             final String platformVersion,
-            final String ident
+            final JsonNode ident
     ) {
         this.protocolVersion = protocolVersion;
         this.platformVersion = platformVersion;
@@ -39,7 +40,7 @@ public class S2CHandshakeFrame {
     }
 
     @JsonIgnore
-    public String getIdent() {
+    public JsonNode getIdent() {
         return ident;
     }
 
@@ -57,7 +58,7 @@ public class S2CHandshakeFrame {
     public static final class S2CHandshakeFrameBuilder {
         private short protocolVersion;
         private String platformVersion;
-        private String ident;
+        private JsonNode ident;
 
         private S2CHandshakeFrameBuilder() {
         }
@@ -72,7 +73,7 @@ public class S2CHandshakeFrame {
             return this;
         }
 
-        public S2CHandshakeFrameBuilder withIdent(final String ident) {
+        public S2CHandshakeFrameBuilder withIdent(final JsonNode ident) {
             this.ident = ident;
             return this;
         }

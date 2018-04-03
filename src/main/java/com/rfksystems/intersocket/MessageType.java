@@ -70,6 +70,12 @@ public enum MessageType {
         public short toShort() {
             return 20;
         }
+    },
+    S2C_BINARY_ATTACHMENT {
+        @Override
+        public short toShort() {
+            return 21;
+        }
     };
 
     public static final Map<String, MessageType> STRING_TYPE_MAP;
@@ -92,5 +98,9 @@ public enum MessageType {
 
     public String toStringCode() {
         return String.valueOf(toShort());
+    }
+
+    public String toPrefix() {
+        return Intersocket.MAGIC_ID_STRING + String.valueOf(toShort());
     }
 }

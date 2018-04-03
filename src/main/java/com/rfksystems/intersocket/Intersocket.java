@@ -10,19 +10,23 @@ import com.rfksystems.intersocket.bundled.DefaultTransport;
 import com.rfksystems.intersocket.frames.*;
 import com.rfksystems.intersocket.response.ErrorResponse;
 import com.rfksystems.intersocket.response.HandshakeResponse;
+import com.rfksystems.intersocket.response.ResponseWithAttachment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 import static com.rfksystems.intersocket.MessageType.*;
 
 public class Intersocket<T> {
-    private static final short MAGIC_ID = 463;
-    private static final String MAGIC_ID_STRING = String.valueOf(MAGIC_ID);
+    public static final short MAGIC_ID = 463;
+    public static final String MAGIC_ID_STRING = String.valueOf(MAGIC_ID);
     private static final Logger LOGGER = LoggerFactory.getLogger(Intersocket.class);
 
     private final Map<String, MessageHandler<T>> handlers;
@@ -32,6 +36,7 @@ public class Intersocket<T> {
     private final Transport<T> transport;
     private final ObjectMapper objectMapper;
     private final SubscriberRegistry<T> subscriberRegistry = new SubscriberRegistry<>();
+    private final Set<T> scopes = new HashSet<>();
 
     private Intersocket(
             final Map<String, MessageHandler<T>> messageHandlers,
@@ -91,9 +96,9 @@ public class Intersocket<T> {
         throw new RuntimeException();
     }
 
-    public Intersocket<T> sendIdentUpdate(final String newIdent, final T scope) {
+    public Intersocket<T> sendIdentUpdate(final Object newIdent, final T scope) {
         final S2CIdentChangeFrame identChangeMessage = S2CIdentChangeFrame.builder()
-                .withNewIdent(newIdent)
+                .withNewIdent(objectMapper.valueToTree(newIdent))
                 .build();
 
         sendRaw(S2C_IDENT_CHANGE, identChangeMessage, scope);
@@ -101,17 +106,25 @@ public class Intersocket<T> {
         return this;
     }
 
-    public Intersocket<T> sendPlatformUpdate(final String newPlatformVersion, final T scope) {
+    public Intersocket<T> sendPlatformUpdate(final String newPlatformVersion) {
         final S2CPlatformChangeFrame identChangeMessage = S2CPlatformChangeFrame.builder()
                 .withNewPlatformVersion(newPlatformVersion)
                 .build();
 
-        sendRaw(S2C_PLATFORM_CHANGE, identChangeMessage, scope);
+        synchronized (scopes) {
+            for (final T scope : scopes) {
+                sendRaw(S2C_PLATFORM_CHANGE, identChangeMessage, scope);
+            }
+        }
 
         return this;
     }
 
     public Intersocket<T> broadcast(final String topic, final Object payload) {
+        return broadcast(topic, payload, scope -> true);
+    }
+
+    public Intersocket<T> broadcast(final String topic, final Object payload, final Predicate<T> filter) {
         final Set<T> scopes = subscriberRegistry.forTopic(topic);
 
         if (scopes.isEmpty()) {
@@ -125,6 +138,10 @@ public class Intersocket<T> {
 
         Throwable firstError = null;
         for (final T scope : scopes) {
+            if (!filter.test(scope)) {
+                continue;
+            }
+
             try {
                 sendRaw(S2C_BROADCAST, frame, scope);
             } catch (final Throwable error) {
@@ -165,8 +182,21 @@ public class Intersocket<T> {
         }
     }
 
+    public void sendBinary(final byte[] payload, final T scope) {
+        try {
+            transport.sendBinary(payload, scope);
+        } catch (final Throwable t) {
+            LOGGER.error("Failed to send binary message", t);
+        }
+    }
+
     public Intersocket<T> removeScope(final T scope) {
         subscriberRegistry.clear(scope);
+
+        synchronized (scopes) {
+            scopes.remove(scope);
+        }
+
         return this;
     }
 
@@ -185,10 +215,6 @@ public class Intersocket<T> {
         final String topic = frame.getTopic();
 
         sendAcknowledged(frame, scope);
-
-        if (frame.isNotification()) {
-            return;
-        }
 
         final Object response;
 
@@ -218,6 +244,11 @@ public class Intersocket<T> {
             return;
         }
 
+        if (frame.isNotification()) {
+            // This is a notification, so we don't care
+            return;
+        }
+
         if (response instanceof ErrorResponse) {
             final ErrorResponse errorResponse = (ErrorResponse) response;
 
@@ -228,6 +259,15 @@ public class Intersocket<T> {
                     .build();
 
             sendRaw(S2C_MESSAGE_ERROR, messageErrorFrame, scope);
+            return;
+        }
+
+        if (response instanceof ResponseWithAttachment) {
+            final ResponseWithAttachment responseWithAttachment = (ResponseWithAttachment) response;
+
+            sendAttachment(frame, responseWithAttachment.getAttachment(), scope);
+            sendMessageResponse(frame, responseWithAttachment.getResponse(), scope);
+
             return;
         }
 
@@ -254,11 +294,17 @@ public class Intersocket<T> {
         }
 
         final HandshakeResponse response = handshakeHandler.handle(scope);
+
         final S2CHandshakeFrame handshakeFrame = S2CHandshakeFrame.builder()
                 .withProtocolVersion((short) 1)
-                .withIdent(response.getIdent())
+                .withIdent(objectMapper.valueToTree(response.getIdent()))
                 .withPlatformVersion(response.getPlatformVersion())
                 .build();
+
+        synchronized (scopes) {
+            scopes.add(scope);
+        }
+
         sendRaw(MessageType.S2C_HANDSHAKE, handshakeFrame, scope);
     }
 
@@ -271,6 +317,19 @@ public class Intersocket<T> {
                 .build();
 
         sendRaw(MessageType.S2C_MESSAGE, responseFrame, scope);
+    }
+
+    private void sendAttachment(final C2SMessageFrame frame, final byte[] attachment, final T scope) {
+        final String headerText = MessageType.S2C_BINARY_ATTACHMENT.toPrefix()
+                + frame.getId();
+
+        final byte[] header = headerText.getBytes(Charset.forName("ASCII"));
+        final byte[] payload = new byte[header.length + attachment.length];
+
+        System.arraycopy(header, 0, payload, 0, header.length);
+        System.arraycopy(attachment, 0, payload, header.length, attachment.length);
+
+        sendBinary(payload, scope);
     }
 
     private <P> P decodeMessagePayload(final String message, final Class<P> tClass) {

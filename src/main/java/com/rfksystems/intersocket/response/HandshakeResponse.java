@@ -2,9 +2,9 @@ package com.rfksystems.intersocket.response;
 
 public class HandshakeResponse {
     private final String platformVersion;
-    private final String ident;
+    private final Object ident;
 
-    private HandshakeResponse(final String platformVersion, final String ident) {
+    private HandshakeResponse(final String platformVersion, final Object ident) {
         this.platformVersion = platformVersion;
         this.ident = ident;
     }
@@ -17,23 +17,23 @@ public class HandshakeResponse {
         return platformVersion;
     }
 
-    public String getIdent() {
+    public Object getIdent() {
         return ident;
     }
 
     public static final class HandshakeResponseBuilder {
         private String platformVersion;
-        private String ident;
+        private Object ident;
 
         private HandshakeResponseBuilder() {
         }
 
-        public HandshakeResponseBuilder withPlatformVersion(String platformVersion) {
+        public HandshakeResponseBuilder withPlatformVersion(final String platformVersion) {
             this.platformVersion = platformVersion;
             return this;
         }
 
-        public HandshakeResponseBuilder withIdent(String ident) {
+        public HandshakeResponseBuilder withIdent(final Object ident) {
             this.ident = ident;
             return this;
         }

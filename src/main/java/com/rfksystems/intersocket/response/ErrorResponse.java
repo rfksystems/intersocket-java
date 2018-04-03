@@ -3,6 +3,7 @@ package com.rfksystems.intersocket.response;
 import com.rfksystems.intersocket.frames.S2CMessageErrorFrame;
 
 public class ErrorResponse {
+    private static final ErrorResponse UNAUTHORIZED_INSTANCE = unauthorized("Not authorized to perform this action");
     private final S2CMessageErrorFrame.ERROR_CODE code;
     private final String description;
 
@@ -16,7 +17,7 @@ public class ErrorResponse {
     }
 
     public static ErrorResponse unauthorized() {
-        return unauthorized("Not authorized to perform this action");
+        return UNAUTHORIZED_INSTANCE;
     }
 
     public static ErrorResponse unauthorized(final String description) {

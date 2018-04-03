@@ -2,13 +2,14 @@ package com.rfksystems.intersocket.frames;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.rfksystems.intersocket.MessageType;
 
 public class S2CIdentChangeFrame {
     @JsonProperty("identChange")
-    private final String newIdent;
+    private final JsonNode newIdent;
 
-    private S2CIdentChangeFrame(final String newIdent) {
+    private S2CIdentChangeFrame(final JsonNode newIdent) {
         this.newIdent = newIdent;
     }
 
@@ -17,7 +18,7 @@ public class S2CIdentChangeFrame {
     }
 
     @JsonIgnore
-    public String getNewIdent() {
+    public JsonNode getNewIdent() {
         return newIdent;
     }
 
@@ -27,12 +28,12 @@ public class S2CIdentChangeFrame {
     }
 
     public static final class S2CIdentChangeFrameBuilder {
-        private String newIdent;
+        private JsonNode newIdent;
 
         private S2CIdentChangeFrameBuilder() {
         }
 
-        public S2CIdentChangeFrameBuilder withNewIdent(final String newIdent) {
+        public S2CIdentChangeFrameBuilder withNewIdent(final JsonNode newIdent) {
             this.newIdent = newIdent;
             return this;
         }
