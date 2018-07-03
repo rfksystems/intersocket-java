@@ -9,7 +9,6 @@ import com.rfksystems.intersocket.bundled.DefaultTopicsSynchronizeHandler;
 import com.rfksystems.intersocket.bundled.DefaultTransport;
 import com.rfksystems.intersocket.frames.*;
 import com.rfksystems.intersocket.response.ErrorResponse;
-import com.rfksystems.intersocket.response.HandshakeResponse;
 import com.rfksystems.intersocket.response.ResponseWithAttachment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +19,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import static com.rfksystems.intersocket.MessageType.*;
@@ -216,15 +216,44 @@ public class Intersocket<T> {
 
         sendAcknowledged(frame, scope);
 
-        final Object response;
+        final Consumer<Object> responseConsumer = response -> {
+            if (frame.isNotification()) {
+                // This is a notification, so we don't care
+                return;
+            }
+
+            if (response instanceof ErrorResponse) {
+                final ErrorResponse errorResponse = (ErrorResponse) response;
+
+                final S2CMessageErrorFrame messageErrorFrame = S2CMessageErrorFrame.builder()
+                        .withId(frame.getId())
+                        .withCode(errorResponse.getCode())
+                        .withDescription(errorResponse.getDescription())
+                        .build();
+
+                sendRaw(S2C_MESSAGE_ERROR, messageErrorFrame, scope);
+                return;
+            }
+
+            if (response instanceof ResponseWithAttachment) {
+                final ResponseWithAttachment responseWithAttachment = (ResponseWithAttachment) response;
+
+                sendAttachment(frame, responseWithAttachment.getAttachment(), scope);
+                sendMessageResponse(frame, responseWithAttachment.getResponse(), scope);
+
+                return;
+            }
+
+            sendMessageResponse(frame, response, scope);
+        };
 
         try {
             if (null != topic && handlers.containsKey(topic)) {
                 final MessageHandler<T> messageHandler = handlers.get(topic);
-                response = messageHandler.handle(frame.getPayload(), scope);
+                messageHandler.handle(frame.getPayload(), scope, responseConsumer);
                 LOGGER.debug("Used topic defined handler for message response for {}:{}", topic, frame.getId());
             } else {
-                response = lostMessageHandler.handle(frame.getPayload(), scope);
+                lostMessageHandler.handle(frame.getPayload(), scope, responseConsumer);
                 LOGGER.debug(
                         "Used lost message handle for message response {}:{}",
                         topic,
@@ -241,37 +270,7 @@ public class Intersocket<T> {
                     ),
                     throwable
             );
-            return;
         }
-
-        if (frame.isNotification()) {
-            // This is a notification, so we don't care
-            return;
-        }
-
-        if (response instanceof ErrorResponse) {
-            final ErrorResponse errorResponse = (ErrorResponse) response;
-
-            final S2CMessageErrorFrame messageErrorFrame = S2CMessageErrorFrame.builder()
-                    .withId(frame.getId())
-                    .withCode(errorResponse.getCode())
-                    .withDescription(errorResponse.getDescription())
-                    .build();
-
-            sendRaw(S2C_MESSAGE_ERROR, messageErrorFrame, scope);
-            return;
-        }
-
-        if (response instanceof ResponseWithAttachment) {
-            final ResponseWithAttachment responseWithAttachment = (ResponseWithAttachment) response;
-
-            sendAttachment(frame, responseWithAttachment.getAttachment(), scope);
-            sendMessageResponse(frame, responseWithAttachment.getResponse(), scope);
-
-            return;
-        }
-
-        sendMessageResponse(frame, response, scope);
     }
 
     private void sendAcknowledged(final C2SMessageFrame frame, final T scope) {
@@ -293,19 +292,19 @@ public class Intersocket<T> {
             return;
         }
 
-        final HandshakeResponse response = handshakeHandler.handle(scope);
+        handshakeHandler.handle(scope, response -> {
+            final S2CHandshakeFrame handshakeFrame = S2CHandshakeFrame.builder()
+                    .withProtocolVersion((short) 1)
+                    .withIdent(objectMapper.valueToTree(response.getIdent()))
+                    .withPlatformVersion(response.getPlatformVersion())
+                    .build();
 
-        final S2CHandshakeFrame handshakeFrame = S2CHandshakeFrame.builder()
-                .withProtocolVersion((short) 1)
-                .withIdent(objectMapper.valueToTree(response.getIdent()))
-                .withPlatformVersion(response.getPlatformVersion())
-                .build();
+            synchronized (scopes) {
+                scopes.add(scope);
+            }
 
-        synchronized (scopes) {
-            scopes.add(scope);
-        }
-
-        sendRaw(MessageType.S2C_HANDSHAKE, handshakeFrame, scope);
+            sendRaw(MessageType.S2C_HANDSHAKE, handshakeFrame, scope);
+        });
     }
 
     private void sendMessageResponse(final C2SMessageFrame frame, final Object response, final T scope) {
